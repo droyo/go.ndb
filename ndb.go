@@ -1,9 +1,24 @@
-// Package ndb decodes and encodes simple strings of key=value pairs.
+// Package ndb decodes and encodes simple strings of attribute=value pairs.
 // The accepted format is based on Plan 9's ndb(6) format found at
-// http://plan9.bell-labs.com/magic/man2html/6/ndb . Values containing
-// white space must be quoted in single quotes. Two single quotes escape
-// a literal single quote. Attributes must not contain white space. A 
-// value may contain any printable unicode character except for a new line.
+// http://plan9.bell-labs.com/magic/man2html/6/ndb, with additional
+// rules for quoting values containing white space.
+//
+// Attributes are UTF-8 encoded strings of any printable non-whitespace
+// character, except for the equals sign ('='). Value strings may contain
+// any printable character except for a new line. Values containing white
+// space must be enclosed in single quotes. Single quotes can be escaped
+// by doubling them, like so:
+//
+// 	* {"example1": "Let's go shopping"} is encoded as
+// 	  example1='Let''s go shopping'
+// 	* {"example2": "Escape ' marks by doubling like this: ''"}
+// 	  example2='Escape '' marks by doubling like this: '''''
+// 	* {"example3": "can't"}
+// 	  example3=can''t
+//
+// Tuples must be separated by at least one whitespace character. The same
+// attribute may appear multiple times in an ndb string. When decoding an
+// ndb string with repeated attributes, the destination type must be a slice.
 package ndb
 
 import (
@@ -16,9 +31,11 @@ import (
 	"unicode/utf8"
 )
 
-// A SyntaxError contains the data that caused an error and the
-// offset of the first byte that caused the syntax error. Data may
-// only be valid until the next call to the Decode() method
+// A SyntaxError occurs when malformed input, such as an unterminated
+// quoted string, is received. It contains the UTF-8 encoded line that
+// was being read and the position of the first byte that caused the 
+// syntax error. Data may only be valid until the next call to the
+// Decode() method
 type SyntaxError struct {
 	Data []byte
 	Offset int64
@@ -67,28 +84,30 @@ type Encoder struct {
 // A decoder wraps an io.Reader and decodes successive ndb strings
 // into Go values using the Decode() function.
 type Decoder struct {
-	src *textproto.Reader
-	pairbuf []pair
+	src       *textproto.Reader
+	pairbuf   []pair
+	finfo     map[string][]int
+	havemulti bool
+	attrs     map[string]struct{}
+	multi     map[string]struct{}
 }
 
 // The Parse function reads an entire ndb string and unmarshals it
-// into the Go value v. Parse will behave differently depending on
-// the concrete type of v. Value v must be a reference type, either a
-// pointer, map, or slice.
-//
-// 	* If v is a slice, Parse will decode all lines from the ndb
-// 	  input into array elements. Otherwise, Parse will decode only
-// 	  the first line.
-//
-// 	* If v is of the type (map[string] interface{}), Parse will
-// 	  populate v with key/value pairs, where value is decoded
-// 	  according to the concrete type of the map's value.
-//
-// 	* If v is a struct, Parse will populate struct fields whose
-// 	  names match the ndb attribute. Struct fields may be annotated
-// 	  with a tag of the form `ndb: name`, where name matches the
-// 	  attribute string in the ndb input.
-//
+// into the Go value v. Value v must be a pointer. Parse will behave
+// differently depending on the type of value v points to.
+// 
+// If v is a slice, Parse will decode all lines from the ndb input
+// into slice elements. Otherwise, Parse will decode only the first
+// line.
+// 
+// If v is a map, Parse will populate v with key/value pairs, where
+// value is decoded according to the concrete types of the map.
+// 
+// If v is a struct, Parse will populate struct fields whose names
+// match the ndb attribute. Struct fields may be annotated with a tag
+// of the form `ndb:"name"`, where name matches the attribute string
+// in the ndb input.
+// 
 // Struct fields or map keys that do not match the ndb input are left
 // unmodified. Ndb attributes that do not match any struct fields are
 // silently dropped. If an ndb string cannot be converted to the
@@ -104,22 +123,45 @@ func Parse(data []byte, v interface{}) error {
 func NewDecoder(r io.Reader) *Decoder {
 	d := new(Decoder)
 	d.src = textproto.NewReader(bufio.NewReader(r))
+	d.attrs = make(map[string] struct{}, 8)
+	d.multi = make(map[string] struct{}, 8)
+	d.finfo = make(map[string] []int, 8)
 	return d
 }
 
 // The Decode method follows the same parsing rules as Parse(), but
-// will read at most one ndb string. As such, slices or arrays are
-// not valid types for v.
+// reads its input from the Decoder's input stream.
 func (d *Decoder) Decode(v interface{}) error {
 	val := reflect.ValueOf(v)
-	if val.Kind() != reflect.Ptr || val.IsNil() {
-		return &TypeError{val.Type()}
+	typ := reflect.TypeOf(v)
+	
+	if typ.Kind() != reflect.Ptr {
+		return &TypeError{typ}
 	}
-	if p,err := d.getPairs(); err != nil {
+	
+	if typ.Elem().Kind() == reflect.Slice {
+		return d.decodeSlice(val)
+	}
+	p,err := d.getPairs()
+	if err != nil {
 		return err
-	} else {
-		return d.saveData(p, val.Elem())
 	}
+	
+	switch typ.Elem().Kind() {
+	default:
+		return &TypeError{val.Type()}
+	case reflect.Map:
+		if val.Elem().IsNil() {
+			val.Elem().Set(reflect.MakeMap(typ.Elem()))
+		} 
+		return d.saveMap(p,val.Elem())
+	case reflect.Struct:
+		if val.IsNil() {
+			return &TypeError{nil}
+		}
+		return d.saveStruct(p,val.Elem())
+	}
+	return nil
 }
 
 // Emit encodes a value into an ndb string. Emit will use the String
@@ -129,7 +171,8 @@ func (d *Decoder) Decode(v interface{}) error {
 // the struct field, or the fields ndb annotation if it exists.
 // Ndb attributes may not contain white space. Ndb values may contain
 // white space but may not contain new lines. If Emit cannot produce
-// valid ndb strings, an error is returned.
+// valid ndb strings, an error is returned. No guarantee is made about
+// the order of the tuples.
 func Emit(v interface{}) ([]byte, error) {
 	return nil,nil
 }
