@@ -1,14 +1,14 @@
 package ndb
 
 import (
-	"io"
-	"reflect"
-	"net/textproto"
-	"unicode"
-	"strconv"
 	"bytes"
-	"strings"
 	"fmt"
+	"io"
+	"net/textproto"
+	"reflect"
+	"strconv"
+	"strings"
+	"unicode"
 )
 
 type scanner struct {
@@ -24,22 +24,22 @@ func (p pair) String() string {
 }
 
 func errBadAttr(line []byte, offset int64) error {
-	return &SyntaxError { line, offset, "Invalid attribute name" }
+	return &SyntaxError{line, offset, "Invalid attribute name"}
 }
 func errUnterminated(line []byte, offset int64) error {
-	return &SyntaxError { line, offset, "Unterminated quoted string" }
+	return &SyntaxError{line, offset, "Unterminated quoted string"}
 }
 func errBadUnicode(line []byte, offset int64) error {
-	return &SyntaxError { line, offset, "Invalid UTF8 input" }
+	return &SyntaxError{line, offset, "Invalid UTF8 input"}
 }
 func errMissingSpace(line []byte, offset int64) error {
-	return &SyntaxError { line, offset, "Missing white space between tuples" }
+	return &SyntaxError{line, offset, "Missing white space between tuples"}
 }
 
 func (d *Decoder) getPairs() ([]pair, error) {
 	line, err := d.src.ReadContinuedLineBytes()
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
 	d.reset()
 	return d.parseLine(line)
@@ -59,7 +59,7 @@ func (d *Decoder) reset() {
 
 func (d *Decoder) decodeSlice(val reflect.Value) error {
 	var err error
-	
+
 	if val.Kind() != reflect.Ptr {
 		return &TypeError{val.Type()}
 	}
@@ -84,13 +84,13 @@ func (d *Decoder) decodeSlice(val reflect.Value) error {
 
 func (d *Decoder) saveMap(pairs []pair, val reflect.Value) error {
 	kv := reflect.New(val.Type().Key())
-	
+
 	if d.havemulti {
 		if val.Type().Elem().Kind() != reflect.Slice {
 			return &TypeError{val.Type()}
 		}
 		vv := reflect.New(val.Type().Elem().Elem())
-		for _,p := range pairs {
+		for _, p := range pairs {
 			if err := storeVal(kv, p.attr); err != nil {
 				return err
 			}
@@ -101,13 +101,13 @@ func (d *Decoder) saveMap(pairs []pair, val reflect.Value) error {
 			if slot.Kind() == reflect.Invalid {
 				slot = reflect.MakeSlice(val.Type().Elem(), 0, 4)
 			}
-			
+
 			slot = reflect.Append(slot, vv.Elem())
 			val.SetMapIndex(kv.Elem(), slot)
 		}
 	} else {
 		vv := reflect.New(val.Type().Elem())
-		for _,p := range pairs {
+		for _, p := range pairs {
 			if err := storeVal(kv, p.attr); err != nil {
 				return err
 			}
@@ -136,10 +136,10 @@ func (d *Decoder) saveStruct(pairs []pair, val reflect.Value) error {
 			d.finfo[field.Name] = field.Index
 		}
 	}
-	for _,p := range pairs {
-		if id,ok := d.finfo[string(p.attr)]; ok {
+	for _, p := range pairs {
+		if id, ok := d.finfo[string(p.attr)]; ok {
 			f := val.FieldByIndex(id)
-			if _,ok := d.multi[string(p.attr)]; ok {
+			if _, ok := d.multi[string(p.attr)]; ok {
 				if f.Kind() != reflect.Slice {
 					return &TypeError{f.Type()}
 				}
@@ -163,7 +163,7 @@ func storeVal(dst reflect.Value, src []byte) error {
 		}
 		dst = dst.Elem()
 	}
-	
+
 	switch dst.Kind() {
 	default:
 		return &TypeError{dst.Type()}
@@ -203,6 +203,7 @@ func storeVal(dst reflect.Value, src []byte) error {
 }
 
 type scanState []int
+
 func (s *scanState) push(n int) {
 	*s = append(*s, n)
 }
@@ -215,7 +216,7 @@ func (s scanState) top() int {
 func (s *scanState) pop() int {
 	v := s.top()
 	if len(*s) > 0 {
-		*s = (*s)[0:len(*s)-1]
+		*s = (*s)[0 : len(*s)-1]
 	}
 	return v
 }
@@ -235,15 +236,15 @@ const (
 // by copying Rob Pike's Go lexing talk.
 func (d *Decoder) parseLine(line []byte) ([]pair, error) {
 	var add pair
-	var beg,offset int64
+	var beg, offset int64
 	var esc bool
-	
+
 	state := make(scanState, 0, 3)
 	buf := bytes.NewReader(line)
-	
-	for r,sz,err := buf.ReadRune(); err == nil; r,sz,err = buf.ReadRune() {
+
+	for r, sz, err := buf.ReadRune(); err == nil; r, sz, err = buf.ReadRune() {
 		if r == 0xFFFD && sz == 1 {
-			return nil,errBadUnicode(line, offset)
+			return nil, errBadUnicode(line, offset)
 		}
 		switch state.top() {
 		case scanNone:
@@ -253,23 +254,23 @@ func (d *Decoder) parseLine(line []byte) ([]pair, error) {
 				state.push(scanAttr)
 				beg = offset
 			} else {
-				return nil,errBadAttr(line, offset)
+				return nil, errBadAttr(line, offset)
 			}
 		case scanAttr:
 			if unicode.IsSpace(r) {
-				add.attr = line[beg:offset]	
+				add.attr = line[beg:offset]
 				d.pairbuf = append(d.pairbuf, add)
-				if _,ok := d.attrs[string(add.attr)]; ok {
+				if _, ok := d.attrs[string(add.attr)]; ok {
 					d.havemulti = true
 					d.multi[string(add.attr)] = struct{}{}
 				} else {
 					d.attrs[string(add.attr)] = struct{}{}
 				}
-				add.attr,add.val,esc = nil,nil,false
+				add.attr, add.val, esc = nil, nil, false
 				state.pop()
 			} else if r == '=' {
 				add.attr = line[beg:offset]
-				if _,ok := d.attrs[string(add.attr)]; ok {
+				if _, ok := d.attrs[string(add.attr)]; ok {
 					d.havemulti = true
 					d.multi[string(add.attr)] = struct{}{}
 				} else {
@@ -277,14 +278,14 @@ func (d *Decoder) parseLine(line []byte) ([]pair, error) {
 				}
 				state.pop()
 				state.push(scanValueStart)
-			} else if !(unicode.IsLetter(r) || unicode.IsNumber(r))  {
-				return nil,errBadAttr(line, offset)
+			} else if !(r == '-' || unicode.IsLetter(r) || unicode.IsNumber(r)) {
+				return nil, errBadAttr(line, offset)
 			}
 		case scanValueStart:
 			beg = offset
 			state.pop()
 			state.push(scanValue)
-			
+
 			if r == '\'' {
 				state.push(scanQuoteStart)
 				break
@@ -298,7 +299,7 @@ func (d *Decoder) parseLine(line []byte) ([]pair, error) {
 					add.val = bytes.Replace(add.val, []byte("''"), []byte("'"), -1)
 				}
 				d.pairbuf = append(d.pairbuf, add)
-				add.attr,add.val = nil,nil
+				add.attr, add.val = nil, nil
 			}
 		case scanQuoteClose:
 			state.pop()
@@ -307,14 +308,14 @@ func (d *Decoder) parseLine(line []byte) ([]pair, error) {
 				state.push(scanQuoteValue)
 			} else if unicode.IsSpace(r) {
 				state.pop()
-				add.val = line[beg:offset-1]
+				add.val = line[beg : offset-1]
 				if esc {
 					add.val = bytes.Replace(add.val, []byte("''"), []byte("'"), -1)
 				}
 				d.pairbuf = append(d.pairbuf, add)
-				add.attr,add.val,esc = nil,nil,false
+				add.attr, add.val, esc = nil, nil, false
 			} else {
-				return nil,errMissingSpace(line, offset)
+				return nil, errMissingSpace(line, offset)
 			}
 		case scanQuoteStart:
 			state.pop()
@@ -330,17 +331,17 @@ func (d *Decoder) parseLine(line []byte) ([]pair, error) {
 				state.pop()
 				state.push(scanQuoteClose)
 			} else if r == '\n' {
-				return nil,errUnterminated(line, offset)
+				return nil, errUnterminated(line, offset)
 			}
 		}
 		offset += int64(sz)
 	}
 	switch state.top() {
 	case scanQuoteValue, scanQuoteStart:
-		return nil,errUnterminated(line, offset)
+		return nil, errUnterminated(line, offset)
 	case scanAttr:
 		add.attr = line[beg:offset]
-		if _,ok := d.attrs[string(add.attr)]; ok {
+		if _, ok := d.attrs[string(add.attr)]; ok {
 			d.havemulti = true
 			d.multi[string(add.attr)] = struct{}{}
 		} else {
@@ -360,5 +361,5 @@ func (d *Decoder) parseLine(line []byte) ([]pair, error) {
 		}
 		d.pairbuf = append(d.pairbuf, add)
 	}
-	return d.pairbuf,nil
+	return d.pairbuf, nil
 }

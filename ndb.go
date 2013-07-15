@@ -22,23 +22,23 @@
 package ndb
 
 import (
-	"reflect"
-	"bytes"
 	"bufio"
-	"net/textproto"
+	"bytes"
 	"fmt"
 	"io"
+	"net/textproto"
+	"reflect"
 	"unicode/utf8"
 )
 
 // A SyntaxError occurs when malformed input, such as an unterminated
 // quoted string, is received. It contains the UTF-8 encoded line that
-// was being read and the position of the first byte that caused the 
+// was being read and the position of the first byte that caused the
 // syntax error. Data may only be valid until the next call to the
 // Decode() method
 type SyntaxError struct {
-	Data []byte
-	Offset int64
+	Data    []byte
+	Offset  int64
 	Message string
 }
 
@@ -52,7 +52,7 @@ func (e *TypeError) Error() string {
 	return fmt.Sprintf("Invalid type %s or nil pointer", e.Type.String())
 }
 
-func min(a,b int64) int64 {
+func min(a, b int64) int64 {
 	if a < b {
 		return a
 	}
@@ -61,24 +61,27 @@ func min(a,b int64) int64 {
 
 func (e *SyntaxError) Error() string {
 	start := e.Offset
-	end := min(e.Offset + 10, int64(len(e.Data)))
-	
-	// Make sure we're on utf8 boundaries
-	for !utf8.RuneStart(e.Data[start]) && start > 0 {
-		start--
+	end := min(e.Offset+10, int64(len(e.Data)))
+
+	if e.Data != nil {
+		// Make sure we're on utf8 boundaries
+		for !utf8.RuneStart(e.Data[start]) && start > 0 {
+			start--
+		}
+		for !utf8.Valid(e.Data[start:end]) && end < int64(len(e.Data)) {
+			end++
+		}
+		return fmt.Sprintf("%s\n\tat `%s'", e.Message, e.Data[start:end])
 	}
-	for !utf8.Valid(e.Data[start:end]) && end < int64(len(e.Data)) {
-		end++
-	}
-	
-	return fmt.Sprintf("%s\n\tat `%s'", e.Message, e.Data[start:end])
+	return e.Message
 }
 
 // An Encoder wraps an io.Writer and serializes Go values
 // into ndb strings. Successive calls to the Encode() method
 // append lines to the io.Writer.
 type Encoder struct {
-	out bufio.Writer
+	start bool
+	out   io.Writer
 }
 
 // A decoder wraps an io.Reader and decodes successive ndb strings
@@ -95,19 +98,19 @@ type Decoder struct {
 // The Parse function reads an entire ndb string and unmarshals it
 // into the Go value v. Value v must be a pointer. Parse will behave
 // differently depending on the type of value v points to.
-// 
+//
 // If v is a slice, Parse will decode all lines from the ndb input
 // into slice elements. Otherwise, Parse will decode only the first
 // line.
-// 
+//
 // If v is a map, Parse will populate v with key/value pairs, where
 // value is decoded according to the concrete types of the map.
-// 
+//
 // If v is a struct, Parse will populate struct fields whose names
 // match the ndb attribute. Struct fields may be annotated with a tag
 // of the form `ndb:"name"`, where name matches the attribute string
 // in the ndb input.
-// 
+//
 // Struct fields or map keys that do not match the ndb input are left
 // unmodified. Ndb attributes that do not match any struct fields are
 // silently dropped. If an ndb string cannot be converted to the
@@ -123,9 +126,9 @@ func Parse(data []byte, v interface{}) error {
 func NewDecoder(r io.Reader) *Decoder {
 	d := new(Decoder)
 	d.src = textproto.NewReader(bufio.NewReader(r))
-	d.attrs = make(map[string] struct{}, 8)
-	d.multi = make(map[string] struct{}, 8)
-	d.finfo = make(map[string] []int, 8)
+	d.attrs = make(map[string]struct{}, 8)
+	d.multi = make(map[string]struct{}, 8)
+	d.finfo = make(map[string][]int, 8)
 	return d
 }
 
@@ -134,32 +137,32 @@ func NewDecoder(r io.Reader) *Decoder {
 func (d *Decoder) Decode(v interface{}) error {
 	val := reflect.ValueOf(v)
 	typ := reflect.TypeOf(v)
-	
+
 	if typ.Kind() != reflect.Ptr {
 		return &TypeError{typ}
 	}
-	
+
 	if typ.Elem().Kind() == reflect.Slice {
 		return d.decodeSlice(val)
 	}
-	p,err := d.getPairs()
+	p, err := d.getPairs()
 	if err != nil {
 		return err
 	}
-	
+
 	switch typ.Elem().Kind() {
 	default:
 		return &TypeError{val.Type()}
 	case reflect.Map:
 		if val.Elem().IsNil() {
 			val.Elem().Set(reflect.MakeMap(typ.Elem()))
-		} 
-		return d.saveMap(p,val.Elem())
+		}
+		return d.saveMap(p, val.Elem())
 	case reflect.Struct:
 		if val.IsNil() {
 			return &TypeError{nil}
 		}
-		return d.saveStruct(p,val.Elem())
+		return d.saveStruct(p, val.Elem())
 	}
 	return nil
 }
@@ -174,7 +177,12 @@ func (d *Decoder) Decode(v interface{}) error {
 // valid ndb strings, an error is returned. No guarantee is made about
 // the order of the tuples.
 func Emit(v interface{}) ([]byte, error) {
-	return nil,nil
+	var buf bytes.Buffer
+	e := NewEncoder(&buf)
+	if err := e.Encode(v); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // The Encode method will write the ndb encoding of the Go value v
@@ -183,16 +191,32 @@ func Emit(v interface{}) ([]byte, error) {
 // If the value cannot be fully encoded, an error is returned and
 // no data will be written to the io.Writer.
 func (e *Encoder) Encode(v interface{}) error {
-	return nil
+	val := reflect.ValueOf(v)
+	// Drill down to the concrete value
+	for val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			return &TypeError{nil}
+		} else {
+			val = val.Elem()
+		}
+	}
+	defer func() {
+		e.start = false
+	}()
+	switch val.Kind() {
+	case reflect.Slice:
+		return e.encodeSlice(val)
+	case reflect.Struct:
+		return e.encodeStruct(val)
+	case reflect.Map:
+		return e.encodeMap(val)
+	default:
+		return &TypeError{val.Type()}
+	}
 }
 
 // NewEncoder returns an Encoder that writes ndb output to an
 // io.Writer
 func NewEncoder(w io.Writer) *Encoder {
-	return nil
-}
-
-// Flush forces all outstanding data in an Encoder to be written to
-// its backend io.Writer.
-func (e *Encoder) Flush() {
+	return &Encoder{out: w}
 }
