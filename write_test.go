@@ -30,7 +30,7 @@ var mapWriteTests = []struct {
 
 func TestStructWrite(t *testing.T) {
 	for _, tt := range structWriteTests {
-		if b, err := Emit(tt.in); err != nil {
+		if b, err := Marshal(tt.in); err != nil {
 			t.Error(err)
 		} else if string(b) != tt.out {
 			t.Errorf("Wanted %s, got %s", tt.out, string(b))
@@ -42,7 +42,7 @@ func TestStructWrite(t *testing.T) {
 
 func TestMapWrite(t *testing.T) {
 	for _, tt := range mapWriteTests {
-		if b, err := Emit(tt.in); err != nil {
+		if b, err := Marshal(tt.in); err != nil {
 			t.Error(err)
 		} else if string(b) != tt.out {
 			t.Errorf("Wanted %s, got %s", tt.out, string(b))

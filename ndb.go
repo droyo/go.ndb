@@ -95,18 +95,18 @@ type Decoder struct {
 	multi     map[string]struct{}
 }
 
-// The Parse function reads an entire ndb string and unmarshals it
-// into the Go value v. Value v must be a pointer. Parse will behave
+// The Unmarshal function reads an entire ndb string and unmarshals it
+// into the Go value v. Value v must be a pointer. Unmarshal will behave
 // differently depending on the type of value v points to.
 //
-// If v is a slice, Parse will decode all lines from the ndb input
-// into slice elements. Otherwise, Parse will decode only the first
+// If v is a slice, Unmarshal will decode all lines from the ndb input
+// into slice elements. Otherwise, Unmarshal will decode only the first
 // line.
 //
-// If v is a map, Parse will populate v with key/value pairs, where
+// If v is a map, Unmarshal will populate v with key/value pairs, where
 // value is decoded according to the concrete types of the map.
 //
-// If v is a struct, Parse will populate struct fields whose names
+// If v is a struct, Unmarshal will populate struct fields whose names
 // match the ndb attribute. Struct fields may be annotated with a tag
 // of the form `ndb:"name"`, where name matches the attribute string
 // in the ndb input.
@@ -115,9 +115,9 @@ type Decoder struct {
 // unmodified. Ndb attributes that do not match any struct fields are
 // silently dropped. If an ndb string cannot be converted to the
 // destination value or a syntax error occurs, an error is returned
-// and v is left unmodified. Parse can only store to exported (capitalized)
+// and v is left unmodified. Unmarshal can only store to exported (capitalized)
 // fields of a struct.
-func Parse(data []byte, v interface{}) error {
+func Unmarshal(data []byte, v interface{}) error {
 	d := NewDecoder(bytes.NewReader(data))
 	return d.Decode(v)
 }
@@ -132,7 +132,7 @@ func NewDecoder(r io.Reader) *Decoder {
 	return d
 }
 
-// The Decode method follows the same parsing rules as Parse(), but
+// The Decode method follows the same parsing rules as Unmarshal(), but
 // reads its input from the Decoder's input stream.
 func (d *Decoder) Decode(v interface{}) error {
 	val := reflect.ValueOf(v)
@@ -167,16 +167,16 @@ func (d *Decoder) Decode(v interface{}) error {
 	return nil
 }
 
-// Emit encodes a value into an ndb string. Emit will use the String
+// Marshal encodes a value into an ndb string. Marshal will use the String
 // method of each struct field or map entry to produce ndb output.
 // If v is a slice or array, multiple ndb lines will be output, one
 // for each element. For structs, attribute names will be the name of
 // the struct field, or the fields ndb annotation if it exists.
 // Ndb attributes may not contain white space. Ndb values may contain
-// white space but may not contain new lines. If Emit cannot produce
+// white space but may not contain new lines. If Marshal cannot produce
 // valid ndb strings, an error is returned. No guarantee is made about
 // the order of the tuples.
-func Emit(v interface{}) ([]byte, error) {
+func Marshal(v interface{}) ([]byte, error) {
 	var buf bytes.Buffer
 	e := NewEncoder(&buf)
 	if err := e.Encode(v); err != nil {

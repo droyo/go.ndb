@@ -77,7 +77,7 @@ func TestStruct(t *testing.T) {
 	var cfg screenCfg
 
 	for _, tt := range structTests {
-		if err := Parse([]byte(tt.in), &cfg); err != nil {
+		if err := Unmarshal([]byte(tt.in), &cfg); err != nil {
 			t.Error(err)
 		} else if cfg != tt.out {
 			t.Errorf("Got %v, wanted %v", cfg, tt.out)
@@ -88,7 +88,7 @@ func TestStruct(t *testing.T) {
 func TestMap(t *testing.T) {
 	var net map[string]string
 	for _, tt := range mapTests {
-		if err := Parse([]byte(tt.in), &net); err != nil {
+		if err := Unmarshal([]byte(tt.in), &net); err != nil {
 			t.Error(err)
 		} else if !mapEquals(tt.out, net) {
 			t.Errorf("Got `%v`, wanted `%v`", net, tt.out)
@@ -114,7 +114,7 @@ func mapEquals(m1, m2 map[string] string) bool {
 func TestAdvanced(t *testing.T) {
 	var net netCfg
 	for _, tt := range advancedTests {
-		if err := Parse([]byte(tt.in), &net); err != nil {
+		if err := Unmarshal([]byte(tt.in), &net); err != nil {
 			t.Error(err)
 		} else if fmt.Sprint(tt.out) != fmt.Sprint(net) {
 			t.Errorf("Got %v, wanted %v", net, tt.out)
@@ -126,7 +126,7 @@ func TestAdvanced(t *testing.T) {
 func TestMultiMap(t *testing.T) {
 	var m map[string][]string
 	for _, tt := range multiMap {
-		if err := Parse([]byte(tt.in), &m); err != nil {
+		if err := Unmarshal([]byte(tt.in), &m); err != nil {
 			t.Error(err)
 		} else if fmt.Sprint(tt.out) != fmt.Sprint(m) {
 			t.Errorf("Got %v, wanted %v", m, tt.out)
