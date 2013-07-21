@@ -6,6 +6,9 @@ network database format, seen here:
 http://plan9.bell-labs.com/magic/man2html/6/ndb
 
 The format is the same, except that values may be quoted with single
-quotes to contain white space. The package can be installed with `go get`.
+quotes to contain white space. The package can be installed with 
+	
+	`go get go.aqwari.us/encoding/ndb`
+
 Once installed, documentation can be viewed with the godoc tool.
 
